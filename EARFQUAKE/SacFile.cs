@@ -7,7 +7,7 @@ using System.Security.Policy;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace MagisterProject
+namespace EARFQUAKE
 {
     public class SacFile
     {
@@ -86,6 +86,8 @@ namespace MagisterProject
 
         private void ReadHeader(BinaryReader reader)
         {
+            long startPos = reader.BaseStream.Position; // Запоминаем начало
+
 
             // === ЧИТАЕМ FLOAT ПОЛЯ (0-69) ===
             Delta = reader.ReadSingle();      // 0 ⭐ период дискретизации
@@ -132,7 +134,7 @@ namespace MagisterProject
             Nzmsec = reader.ReadInt32();      // 75 ⭐ Миллисекунда
 
             // Пропускаем Nvhdr, Norid, Nevid (76-78)
-            reader.ReadInt32(); // 76
+            var nvhdr = reader.ReadInt32(); // 76
             reader.ReadInt32(); // 77  
             reader.ReadInt32(); // 78
 
@@ -147,29 +149,44 @@ namespace MagisterProject
 
             Idep = reader.ReadInt32();        // 83 ⭐ Тип данных
 
-            // Пропускаем Iztype и остальные до ориентации (84-100)
-            for (int i = 84; i < 101; i++) reader.ReadInt32();
+            // ПРОПУСКАЕМ int 84-139 (56 полей)
+            for (int i = 84; i < 140; i++) reader.ReadInt32();
 
-            // Пропускаем Icmpaz, Icmpinc (101-102)
-            reader.ReadInt32(); // 101
-            reader.ReadInt32(); // 102
+            // ⭐⭐ ТЕПЕРЬ ПОЗИЦИЯ: startPos + 560 ⭐⭐
+            // (70 float × 4) + (70 int × 4) = 280 + 280 = 560
 
-            // Пропускаем остальные int поля (103-139)
-            for (int i = 103; i < 140; i++) reader.ReadInt32();
+            // Читаем строки (мы уже на правильной позиции!)
+            Kstnm = ReadString(reader, 8);    // 560-567
 
-            // === ЧИТАЕМ STRING ПОЛЯ (140-331) ===
-            Kstnm = ReadString(reader, 8);    // 140-147 ⭐ Код станции
-            reader.ReadBytes(16);                    // 148-163: Kevnm - пропускаем
-            reader.ReadBytes(8);                     // 164-171: Khole - пропускаем
+            // Пропускаем 160 байт до KCMPNM
+            reader.BaseStream.Seek(160, SeekOrigin.Current);
+            Kcmpnm = ReadString(reader, 8);   // 728-735
 
-            // Пропускаем Ko, Ka, Kt0-Kt9, Kf, Kuser0-Kuser2 (172-299)
-            for (int i = 0; i < 16; i++) reader.ReadBytes(8);
+            //// ⭐ ВАЖНО: выбор смещения в зависимости от версии
+            //if (nvhdr == 6)
+            //{
+            //    // Версия 6: заголовок 632 байта
+            //    // Нужно пропустить до 632
+            //    reader.BaseStream.Position = startPos + 632;
+            //}
+            //else if (nvhdr == 7)
+            //{
+            //    // Версия 7: заголовок 752 байта  
+            //    // Пропускаем оставшиеся строки (16 байт)
+            //    reader.BaseStream.Seek(16, SeekOrigin.Current);
+            //    // Теперь позиция: startPos + 752
+            //}
+            //else
+            //{
+            //    // Неизвестная версия
+            //    throw new Exception($"Неизвестная версия SAC: NVHDR = {nvhdr}");
+            //}
 
-            Kcmpnm = ReadString(reader, 8);   // 300-307 ⭐ Имя компоненты
+            // ⭐⭐ ДАННЫЕ НАЧИНАЮТСЯ С 752, НЕ 632! ⭐⭐
+            // Пропускаем оставшиеся строки (736-751 = 16 байт)
+            reader.BaseStream.Seek(16, SeekOrigin.Current);
 
-            // Пропускаем Knetwk, Kdatrd (308-323)
-            reader.ReadBytes(8); // 308-315
-            reader.ReadBytes(8); // 316-323         
+            // Теперь позиция: startPos + 752 (начало данных)
         }
 
         private static float[] ReadData(BinaryReader reader, int length)
@@ -266,6 +283,8 @@ namespace MagisterProject
                 return DateTime.MinValue;
             }
         }
+
+
 
     }
 }
