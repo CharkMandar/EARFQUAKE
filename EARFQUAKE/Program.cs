@@ -1,23 +1,55 @@
-﻿
-using ICSharpCode.SharpZipLib.Tar;
-using System;
-using System.Collections.Generic;
-using System.Globalization;
-using System.IO;
-using System.Linq;
-using System.Net.WebSockets;
-using System.Text;
-using System.Threading.Tasks;
+﻿using EARTHQUAKE;
 
-namespace EARFQUAKE
+class Program
 {
-    class Program
+    static void Main()
     {
-        const string tar = @"C:\Users\mihas\Downloads\Telegram Desktop\2023-02-06-mww75-turkey.tar";
-        const string name = @"C:\Users\mihas\Downloads\2023-02-06-mww75-turkey\BK.CMB.00.BHZ.Q.2023.037.103739.SACA";
-        const string name2 = @"C:\Users\mihas\Downloads\123\BK.CMB.00.BHN.Q.2023.037.103739.SAC";
-        static void Main()
+        try
         {
+            // 1. Загрузка данных
+            var loader = new SacLoader();
+            var sacFiles = loader.LoadFromJson(
+                @"C:\Users\mihas\PycharmProjects\FullSacShit\SAC_PROCESSED\sac_metadata.json.z"
+            );
+
+            if (sacFiles.Count == 0) return;
+
+            // 2. Базовый анализ
+            var analyzer = new SacAnalyzer();
+            analyzer.BasicAnalysis(sacFiles);
+
+            // 3. Графики
+            analyzer.PlotDistanceVsAmplitude(sacFiles);
+            analyzer.PlotStationMap(sacFiles);
+
+            // 4. График для первой станции
+            if (sacFiles.Count > 0)
+            {
+                analyzer.PlotExampleWaveform(sacFiles[0]);
+            }
+
+            // 5. Простой экспорт в CSV
+            ExportToCsv(sacFiles, "simple_analysis.csv");
+
+            Console.WriteLine("\nГотово!");
         }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка: {ex.Message}");
+        }
+    }
+
+    static void ExportToCsv(List<SacFile> sacFiles, string path)
+    {
+        using (var writer = new System.IO.StreamWriter(path))
+        {
+            writer.WriteLine("Station,Channel,Latitude,Longitude,DistanceKm,PeakAmplitude");
+
+            foreach (var sac in sacFiles.Where(s => s.Latitude != -12345f))
+            {
+                writer.WriteLine($"{sac.Station},{sac.Channel},{sac.Latitude:F6},{sac.Longitude:F6},{sac.DistanceKm:F2},{sac.PeakAmplitude:E2}");
+            }
+        }
+        Console.WriteLine($"Данные экспортированы в: {path}");
     }
 }
