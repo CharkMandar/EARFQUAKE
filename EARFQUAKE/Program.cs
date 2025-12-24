@@ -1,4 +1,4 @@
-﻿using EARTHQUAKE;
+﻿using EARFQUAKE;
 
 class Program
 {

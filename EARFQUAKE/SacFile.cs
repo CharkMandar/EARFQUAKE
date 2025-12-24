@@ -1,7 +1,7 @@
 ﻿using Newtonsoft.Json;
 using System.IO.Compression;
 
-namespace EARTHQUAKE
+namespace EARFQUAKE
 {
     public class SacLoader
     {
