@@ -9,7 +9,7 @@ class Program
             // 1. Загрузка данных
             var loader = new SacLoader();
             var sacFiles = loader.LoadFromJson(
-                @"C:\Users\mihas\PycharmProjects\FullSacShit\SAC_PROCESSED\sac_metadata.json.z"
+                @"C:\Users\mihas\PycharmProjects\FullSacShit\SAC_PROCESSED\seismic_event.json.z"
             );
 
             if (sacFiles.Count == 0) return;
@@ -21,6 +21,7 @@ class Program
             // 3. Графики
             analyzer.PlotDistanceVsAmplitude(sacFiles);
             analyzer.PlotStationMap(sacFiles);
+            analyzer.PlotBinnedGraph(sacFiles);
 
             // 4. График для первой станции
             if (sacFiles.Count > 0)

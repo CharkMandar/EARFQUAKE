@@ -1,7 +1,28 @@
-﻿using ScottPlot;
+﻿using MathNet.Numerics.Statistics;
+using ScottPlot;
+using System.Security.Cryptography;
 
 namespace EARFQUAKE
 {
+    public static class EnumerableExtentions
+    {
+        public static double Median(this IEnumerable<double> source)
+        {
+            if (source == null)
+                throw new ArgumentNullException(nameof(source));
+
+            var sorted = source.OrderBy(x => x).ToArray();
+            int count = sorted.Length;
+
+            if (count == 0)
+                throw new InvalidOperationException("Последовательность не содержит элементов");
+
+            if (count % 2 == 1)
+                return sorted[count / 2];
+            else
+                return (sorted[count / 2 - 1] + sorted[count / 2]) / 2.0;
+        }
+    }
     public class SacAnalyzer
     {
         public void BasicAnalysis(List<SacFile> sacFiles)
@@ -215,5 +236,91 @@ namespace EARFQUAKE
             plt.Save($"waveform_{sacFile.Station}.png", 800, 400);
             Console.WriteLine($"График сигнала сохранен: waveform_{sacFile.Station}.png");
         }
+
+        public void PlotBinnedGraph(List<SacFile> sacFiles)
+        {
+
+            List<(double min, double max)> bins = new()
+            {
+                (1000, 3000),
+                (3000, 5000),
+                (5000, 7000),
+                (7000, 9000),
+                (9000, 12000),
+                (12000, 15000),
+                (15000, 18000),
+                (18000, 21000) 
+            };
+            
+
+            var validFiles = sacFiles
+           .Where(s => s.Latitude != -12345f &&
+                      s.DataSample != null &&
+                      s.DataSample.Length > 0 &&
+                      s.PeakAmplitude > 0) // Исключаем нулевые амплитуды
+           .ToList();
+
+            if (validFiles.Count < 2)
+            {
+                Console.WriteLine("Недостаточно данных для графика");
+                return;
+            }
+            var binnedData = new List<(double midDistance, double medianAmplitude)>();
+            // Подготовка данных
+            double[] distances = validFiles.Select(s => s.DistanceKm).ToArray();
+            double[] amplitudes = validFiles.Select(s => (double)s.PeakAmplitude).ToArray();
+
+            // --- ФИЛЬТРАЦИЯ ВЫБРОСОВ (основная магия) ---
+            // Сортируем амплитуды для вычисления квантилей
+            var sortedAmplitudes = amplitudes.OrderBy(a => a).ToArray();
+            int total = sortedAmplitudes.Length;
+
+            // Вычисляем нижний и верхний квантили (отсекаем по 1% с каждого края)
+            double lowerBound = sortedAmplitudes[(int)(total * 0.01)];
+            double upperBound = sortedAmplitudes[(int)(total * 0.99)];
+
+            // Фильтруем данные, оставляя только значения в пределах квантилей
+            var filteredData = validFiles
+                .Where((s, index) => amplitudes[index] >= lowerBound && amplitudes[index] <= upperBound)
+                .ToList();
+
+
+            foreach (var bin in bins)
+            {
+                var stationsInBin = filteredData.Where(s => s.DistanceKm >= bin.min && s.DistanceKm < bin.max).ToList();
+                if (stationsInBin.Count > 0)
+                {
+                    double mid = (bin.min + bin.max) / 2;
+                    double median = stationsInBin.Select(s => s.PeakAmplitude).Median(); 
+                    binnedData.Add((mid, median));
+                }
+            }
+
+            double[] filteredDistances = binnedData.Select(b => b.midDistance).ToArray();
+            double[] filteredAmplitudes = binnedData.Select(b => b.medianAmplitude).ToArray();         
+
+            // --- СОЗДАНИЕ ОСНОВНОГО ГРАФИКА (Расстояние vs Амплитуда) ---
+            var plt = new Plot(); // Увеличиваем размер для двух графиков
+
+            // График 1: Точечная диаграмма (разброс)
+            double[] logYs = filteredAmplitudes.Select(y => Math.Log10(y)).ToArray();
+            var scatterPlot = plt.Add.Scatter(filteredDistances, logYs);
+            scatterPlot.LineWidth = 0;
+            scatterPlot.MarkerSize = 15;
+            scatterPlot.Color = Colors.Red.WithAlpha(0.7); // Полупрозрачный
+            scatterPlot.Label = "Амплитуда по станциям";
+
+            // --- НАСТРОЙКА ОСЕЙ (важная часть) ---
+            plt.Title("Усредненные данные и тренд затухания");
+            plt.XLabel("Дистанция до эпицентра (км)");
+            plt.YLabel("Пиковая амплитуда (логарифмическая шкала)");
+
+            plt.ShowLegend();
+
+            // Сохраняем основной график
+            plt.Save("distance_vs_amplitude_median.png", 1200, 800);
+            Console.WriteLine($"\nОсновной график сохранен: distance_vs_amplitude_medain.png");
+        }
+
     }
 }
