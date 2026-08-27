@@ -14,23 +14,96 @@ class Program
 
             if (sacFiles.Count == 0) return;
 
-            // 2. Базовый анализ
-            var analyzer = new SacAnalyzer();
-            analyzer.BasicAnalysis(sacFiles);
+            var signalProcessor = new SignalProcessor();
 
-            // 3. Графики
-            analyzer.PlotDistanceVsAmplitude(sacFiles);
-            analyzer.PlotStationMap(sacFiles);
-            analyzer.PlotBinnedGraph(sacFiles);
+            var spectrumAnalyzer = new SpectrumAnalyzer();
 
-            // 4. График для первой станции
-            if (sacFiles.Count > 0)
+            var exampleSignal = sacFiles.FirstOrDefault();
+
+            if (exampleSignal != null)
             {
-                analyzer.PlotExampleWaveform(sacFiles[0]);
+                // --------------------------------------------------------
+                // 1. Предобработка
+                // --------------------------------------------------------
+
+                double[] preprocessed =
+                    signalProcessor.Preprocess(exampleSignal);
+
+                // --------------------------------------------------------
+                // 2. Bandpass 0.1–10 Hz
+                // --------------------------------------------------------
+
+                double[] filtered =
+                    signalProcessor.FilterSignal(
+                        preprocessed,
+                        exampleSignal.SamplingRate,
+                        0.1,
+                        10.0,
+                        4
+                    );
+
+                // --------------------------------------------------------
+                // 3. FFT
+                // --------------------------------------------------------
+
+                SpectrumResult spectrum =
+                    spectrumAnalyzer.CalculateFFT(
+                        filtered,
+                        exampleSignal.SamplingRate
+                    );
+
+                // --------------------------------------------------------
+                // 4. Доминирующая частота
+                // --------------------------------------------------------
+
+                double dominantFrequency =
+                    spectrumAnalyzer.FindDominantFrequency(
+                        spectrum
+                    );
+
+                spectrumAnalyzer.PlotSpectrum(
+                    exampleSignal
+                );
+
+                Console.WriteLine();
+                Console.WriteLine("=== SPECTRAL ANALYSIS ===");
+
+                Console.WriteLine(
+                    $"Station:              {exampleSignal.Station}");
+
+                Console.WriteLine(
+                    $"Channel:              {exampleSignal.Channel}");
+
+                Console.WriteLine(
+                    $"FFT samples:          {spectrum.SampleCount}");
+
+                Console.WriteLine(
+                    $"Frequency resolution: {spectrum.FrequencyResolution:F6} Hz");
+
+                Console.WriteLine(
+                    $"Nyquist frequency:    {spectrum.NyquistFrequency:F2} Hz");
+
+                Console.WriteLine(
+                    $"Dominant frequency:   {dominantFrequency:F4} Hz");
             }
 
-            // 5. Простой экспорт в CSV
-            ExportToCsv(sacFiles, "simple_analysis.csv");
+            //// 2. Базовый анализ
+            //var analyzer = new SacAnalyzer();
+            //analyzer.BasicAnalysis(sacFiles);
+
+            //// 3. Графики
+            //analyzer.PlotDistanceVsAmplitude(sacFiles);
+            //analyzer.PlotStationMap(sacFiles);
+            //analyzer.PlotBinnedGraph(sacFiles);
+
+            //// 4. График для первой станции
+            //if (sacFiles.Count > 0)
+            //{
+            //    analyzer.PlotExampleWaveform(sacFiles[0]);
+            //}
+
+            //// 5. Простой экспорт в CSV
+            //ExportToCsv(sacFiles, "simple_analysis.csv");
 
             Console.WriteLine("\nГотово!");
         }

@@ -127,7 +127,7 @@ namespace EARFQUAKE
             scatterPlot.Color = Colors.Blue.WithAlpha(0.7); // Полупрозрачный
             scatterPlot.Label = "Амплитуда по станциям";
 
-            // --- НАСТРОЙКА ОСЕЙ (важная часть) ---
+            // --- НАСТРОЙКА ОСЕЙ ---
             plt.Title("Зависимость амплитуды от дистанции (с фильтрацией выбросов)");
             plt.XLabel("Дистанция до эпицентра (км)");
             plt.YLabel("Пиковая амплитуда (логарифмическая шкала)");
@@ -270,7 +270,7 @@ namespace EARFQUAKE
             double[] distances = validFiles.Select(s => s.DistanceKm).ToArray();
             double[] amplitudes = validFiles.Select(s => (double)s.PeakAmplitude).ToArray();
 
-            // --- ФИЛЬТРАЦИЯ ВЫБРОСОВ (основная магия) ---
+            // --- ФИЛЬТРАЦИЯ ВЫБРОСОВ ---
             // Сортируем амплитуды для вычисления квантилей
             var sortedAmplitudes = amplitudes.OrderBy(a => a).ToArray();
             int total = sortedAmplitudes.Length;
@@ -310,7 +310,7 @@ namespace EARFQUAKE
             scatterPlot.Color = Colors.Red.WithAlpha(0.7); // Полупрозрачный
             scatterPlot.Label = "Амплитуда по станциям";
 
-            // --- НАСТРОЙКА ОСЕЙ (важная часть) ---
+            // --- НАСТРОЙКА ОСЕЙ ---
             plt.Title("Усредненные данные и тренд затухания");
             plt.XLabel("Дистанция до эпицентра (км)");
             plt.YLabel("Пиковая амплитуда (логарифмическая шкала)");
