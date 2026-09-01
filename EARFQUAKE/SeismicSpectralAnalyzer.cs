@@ -121,6 +121,8 @@
 
                 Location = sacFile.Location,
 
+                SamplingRate = sacFile.SamplingRate,
+
                 Features = features
             };
         }

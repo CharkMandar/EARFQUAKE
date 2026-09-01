@@ -16,6 +16,8 @@ namespace EARFQUAKE
 
         public SpectralFeatures Features { get; set; } = new();
 
+        public double SamplingRate { get; set; } = double.NaN;
+
         public string Location { get; set; } = "";
     }
 }

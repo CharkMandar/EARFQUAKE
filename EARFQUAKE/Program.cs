@@ -26,11 +26,9 @@ class Program
                 $"Загружено записей: {sacFiles.Count}"
             );
 
-            Console.WriteLine();
-
-            // ================================================================
-            // 2. Очистка дубликатов
-            // ================================================================
+            // ============================================================
+            // 2. Очистка
+            // ============================================================
 
             var cleaner = new SeismicDataCleaner();
 
@@ -38,12 +36,12 @@ class Program
                 cleaner.RemoveDuplicates(sacFiles);
 
             Console.WriteLine(
-                $"После очистки: {cleanedRecords.Count}"
+                $"После очистки:   {cleanedRecords.Count}"
             );
 
-            // ================================================================
+            // ============================================================
             // 3. Спектральный анализ
-            // ================================================================
+            // ============================================================
 
             var spectralAnalyzer =
                 new SeismicSpectralAnalyzer();
@@ -62,126 +60,56 @@ class Program
                 }
             }
 
-            // ================================================================
-            // 4. Итоговая информация
-            // ================================================================
+            Console.WriteLine(
+                $"Проанализировано: {results.Count}"
+            );
+
+            // ============================================================
+            // 4. Визуализация
+            // ============================================================
+
+            var visualizer =
+                new SeismicSpectralVisualizer();
 
             Console.WriteLine();
             Console.WriteLine(
-                "=== SEISMIC SPECTRAL ANALYSIS ==="
+                "=== SPECTRAL VISUALIZATION ==="
             );
 
-            Console.WriteLine(
-                $"Исходных записей:       {sacFiles.Count}"
+            visualizer.PlotDominantFrequencyVsDistance(
+                results
             );
 
-            Console.WriteLine(
-                $"Уникальных записей:     {cleanedRecords.Count}"
+            visualizer.PlotSpectralCentroidVsDistance(
+                results
             );
 
-            Console.WriteLine(
-                $"Успешно проанализировано: {results.Count}"
+            visualizer.PlotSpectralBandwidthVsDistance(
+                results
             );
 
-            Console.WriteLine(
-                $"Не обработано:           " +
-                $"{cleanedRecords.Count - results.Count}"
+            visualizer.PlotSpectralEnergyVsDistance(
+                results
             );
 
-            Console.WriteLine();
-
-            Console.WriteLine(
-                $"Уникальных станций: " +
-                $"{results.Select(r => r.Station).Distinct().Count()}"
-            );
-
-            Console.WriteLine(
-                $"Рассчитываемые характеристики:"
-            );
-
-            Console.WriteLine(
-                "  • Dominant Frequency"
-            );
-
-            Console.WriteLine(
-                "  • Spectral Centroid"
-            );
-
-            Console.WriteLine(
-                "  • Spectral Bandwidth"
-            );
-
-            Console.WriteLine(
-                "  • Spectral Energy"
-            );
-
-            // ================================================================
-            // 5. Первые результаты
-            // ================================================================
+            // ============================================================
+            // 5. Завершение
+            // ============================================================
 
             Console.WriteLine();
             Console.WriteLine(
-                "=== ПРИМЕР РЕЗУЛЬТАТОВ ==="
-            );
-
-            foreach (var result in results.Take(10))
-            {
-                Console.WriteLine();
-
-                Console.WriteLine(
-                    $"{result.Network}." +
-                    $"{result.Station}." +
-                    $"{result.Location}." +
-                    $"{result.Channel}"
-                );
-
-                Console.WriteLine(
-                    $"Distance:   " +
-                    $"{result.DistanceKm:F2} km"
-                );
-
-                Console.WriteLine(
-                    $"Dominant:   " +
-                    $"{result.Features.DominantFrequency:F4} Hz"
-                );
-
-                Console.WriteLine(
-                    $"Centroid:   " +
-                    $"{result.Features.SpectralCentroid:F4} Hz"
-                );
-
-                Console.WriteLine(
-                    $"Bandwidth:  " +
-                    $"{result.Features.SpectralBandwidth:F4} Hz"
-                );
-
-                Console.WriteLine(
-                    $"Energy:     " +
-                    $"{result.Features.SpectralEnergy:E6}"
-                );
-            }
-
-            // ================================================================
-            // 6. Завершение
-            // ================================================================
-
-            Console.WriteLine();
-            Console.WriteLine(
-                "Спектральный анализ завершён."
-            );
-
-            Console.WriteLine(
-                "Следующий этап: сравнение характеристик " +
-                "между станциями и визуализация."
+                "Визуализация завершена."
             );
 
             Console.ReadKey();
         }
         catch (Exception ex)
         {
-            Console.WriteLine(
-                $"Критическая ошибка: {ex.Message}"
-            );
+            Console.WriteLine();
+            Console.WriteLine("Ошибка:");
+            Console.WriteLine(ex.Message);
+
+            Console.ReadKey();
         }
     }
 
