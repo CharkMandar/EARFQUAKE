@@ -489,6 +489,8 @@ namespace EARFQUAKE
             return result;
         }
 
+        #region ===отладка=== 
+
         public void PlotFilteringComparison(SacFile sacFile)
         {
             if (sacFile == null)
@@ -706,5 +708,7 @@ namespace EARFQUAKE
             Console.WriteLine(
                 $"Message:        {result.StatusMessage}");
         }
+
+#endregion
     }
 }

@@ -28,6 +28,18 @@ namespace EARFQUAKE
         public string StatusMessage { get; set; } = "";
     }
 
+    // ========================================================================
+    // СПЕКТРАЛЬНЫЕ ХАРАКТЕРИСТИКИ
+    // ========================================================================
+
+    public class SpectralFeatures
+    {
+        public double DominantFrequency {get; set; }
+        public double SpectralCentroid  {get; set; }
+        public double SpectralBandwidth {get; set; }
+        public double SpectralEnergy { get; set; }
+    }
+
 
     // ========================================================================
     // СПЕКТРАЛЬНЫЙ АНАЛИЗАТОР
@@ -40,8 +52,8 @@ namespace EARFQUAKE
         // ====================================================================
 
         public SpectrumResult CalculateFFT(
-            double[] signal,
-            double samplingRate)
+    double[] signal,
+    double samplingRate)
         {
             var result = new SpectrumResult();
 
@@ -71,17 +83,13 @@ namespace EARFQUAKE
             }
 
             // ------------------------------------------------------------
-            // Для FFT желательно использовать степень двойки
+            // Размер FFT
+            //
+            // Используем все имеющиеся отсчёты.
+            // MathNet поддерживает FFT для произвольной длины.
             // ------------------------------------------------------------
 
-            int originalLength = signal.Length;
-
-            int fftSize = 1;
-
-            while (fftSize * 2 <= originalLength)
-            {
-                fftSize *= 2;
-            }
+            int fftSize = signal.Length;
 
             // ------------------------------------------------------------
             // Слишком короткий сигнал
@@ -202,8 +210,10 @@ namespace EARFQUAKE
         {
             if (spectrum == null ||
                 !spectrum.IsValid ||
-                spectrum.Frequencies.Length == 0 ||
-                spectrum.Amplitudes.Length == 0)
+                spectrum.Frequencies == null ||
+                spectrum.Amplitudes == null ||
+                spectrum.Frequencies.Length < 2 ||
+                spectrum.Amplitudes.Length < 2)
             {
                 return double.NaN;
             }
@@ -223,10 +233,177 @@ namespace EARFQUAKE
         }
 
         // ========================================================================
+        // СПЕКТРАЛЬНЫЙ ЦЕНТРОИД
+        // ========================================================================
+
+        public double CalculateSpectralCentroid(
+            SpectrumResult spectrum)
+        {
+            if (spectrum == null ||
+                !spectrum.IsValid ||
+                spectrum.Frequencies == null ||
+                spectrum.Amplitudes == null ||
+                spectrum.Frequencies.Length < 2 ||
+                spectrum.Amplitudes.Length < 2 ||
+                spectrum.Frequencies.Length != spectrum.Amplitudes.Length)
+            {
+                return double.NaN;
+            }
+
+            double weightedFrequencySum = 0.0;
+            double amplitudeSum = 0.0;
+
+            for (int i = 1; i < spectrum.Frequencies.Length; i++)
+            {
+                double frequency = spectrum.Frequencies[i];
+                double amplitude = spectrum.Amplitudes[i];
+
+                weightedFrequencySum += frequency * amplitude;
+                amplitudeSum += amplitude;
+            }
+
+            if (amplitudeSum <= 0.0 ||
+                double.IsNaN(amplitudeSum) ||
+                double.IsInfinity(amplitudeSum))
+            {
+                return double.NaN;
+            }
+
+            return weightedFrequencySum / amplitudeSum;
+        }
+
+        // ========================================================================
+        // СПЕКТРАЛЬНАЯ ШИРИНА
+        // ========================================================================
+
+        public double CalculateSpectralBandwidth(
+            SpectrumResult spectrum)
+        {
+            if (spectrum == null ||
+                !spectrum.IsValid ||
+                spectrum.Frequencies == null ||
+                spectrum.Amplitudes == null ||
+                spectrum.Frequencies.Length < 2 ||
+                spectrum.Amplitudes.Length < 2 ||
+                spectrum.Frequencies.Length != spectrum.Amplitudes.Length)
+            {
+                return double.NaN;
+            }
+
+            double centroid =
+                CalculateSpectralCentroid(spectrum);
+
+            if (double.IsNaN(centroid) ||
+                double.IsInfinity(centroid))
+            {
+                return double.NaN;
+            }
+
+            double weightedSquaredDeviation = 0.0;
+            double amplitudeSum = 0.0;
+
+            for (int i = 1; i < spectrum.Frequencies.Length; i++)
+            {
+                double frequency = spectrum.Frequencies[i];
+                double amplitude = spectrum.Amplitudes[i];
+
+                double deviation =
+                    frequency - centroid;
+
+                weightedSquaredDeviation +=
+                    amplitude * deviation * deviation;
+
+                amplitudeSum += amplitude;
+            }
+
+            if (amplitudeSum <= 0.0 ||
+                double.IsNaN(amplitudeSum) ||
+                double.IsInfinity(amplitudeSum))
+            {
+                return double.NaN;
+            }
+
+            return Math.Sqrt(
+                weightedSquaredDeviation / amplitudeSum
+            );
+        }
+
+        // ========================================================================
+        // СПЕКТРАЛЬНАЯ ЭНЕРГИЯ
+        // ========================================================================
+
+        public double CalculateSpectralEnergy(
+            SpectrumResult spectrum)
+        {
+            if (spectrum == null ||
+                !spectrum.IsValid ||
+                spectrum.Amplitudes == null ||
+                spectrum.Amplitudes.Length < 2)
+            {
+                return double.NaN;
+            }
+
+            double energy = 0.0;
+
+            for (int i = 1; i < spectrum.Amplitudes.Length; i++)
+            {
+                double amplitude =
+                    spectrum.Amplitudes[i];
+
+                energy += amplitude * amplitude;
+            }
+
+            if (double.IsNaN(energy) ||
+                double.IsInfinity(energy))
+            {
+                return double.NaN;
+            }
+
+            return energy;
+        }
+
+        // ========================================================================
+        // АНАЛИЗ СПЕКТРАЛЬНЫХ ХАРАКТЕРИСТИК
+        // ========================================================================
+
+        public SpectralFeatures AnalyzeSpectrum(
+            SpectrumResult spectrum)
+        {
+            if (spectrum == null ||
+                !spectrum.IsValid)
+            {
+                return new SpectralFeatures
+                {
+                    DominantFrequency = double.NaN,
+                    SpectralCentroid = double.NaN,
+                    SpectralBandwidth = double.NaN,
+                    SpectralEnergy = double.NaN
+                };
+            }
+
+            return new SpectralFeatures
+            {
+                DominantFrequency =
+                    FindDominantFrequency(spectrum),
+
+                SpectralCentroid =
+                    CalculateSpectralCentroid(spectrum),
+
+                SpectralBandwidth =
+                    CalculateSpectralBandwidth(spectrum),
+
+                SpectralEnergy =
+                    CalculateSpectralEnergy(spectrum)
+            };
+        }
+
+        // ========================================================================
         // ГРАФИК АМПЛИТУДНОГО СПЕКТРА
         // ========================================================================
 
-        public void PlotSpectrum(SacFile sacFile)
+        public void PlotSpectrum(
+    SpectrumResult spectrum,
+    SacFile sacFile)
         {
             if (sacFile == null)
             {
@@ -234,104 +411,48 @@ namespace EARFQUAKE
                 return;
             }
 
-            if (sacFile.DataSample == null ||
-                sacFile.DataSample.Length < 2)
+            if (spectrum == null || !spectrum.IsValid)
             {
                 Console.WriteLine(
-                    "Недостаточно данных для спектрального анализа"
+                    "Некорректный результат спектрального анализа"
                 );
                 return;
             }
 
-            if (double.IsNaN(sacFile.SamplingRate) ||
-                double.IsInfinity(sacFile.SamplingRate) ||
-                sacFile.SamplingRate <= 0)
+            if (spectrum.Frequencies == null ||
+                spectrum.Amplitudes == null ||
+                spectrum.Frequencies.Length < 2)
             {
                 Console.WriteLine(
-                    "Некорректная частота дискретизации"
-                );
-                return;
-            }
-
-            // ------------------------------------------------------------
-            // 1. Предобработка
-            // ------------------------------------------------------------
-
-            var sp = new SignalProcessor();
-            double[] signal = sp.Preprocess(sacFile);
-
-            // ------------------------------------------------------------
-            // 2. Определяем размер FFT
-            // ------------------------------------------------------------
-
-            int fftSize = Math.Min(
-                8192,
-                signal.Length
-            );
-
-            if (fftSize < 2)
-            {
-                Console.WriteLine(
-                    "Недостаточный размер FFT"
+                    "Недостаточно данных для построения спектра"
                 );
                 return;
             }
 
             // ------------------------------------------------------------
-            // 3. Берём часть сигнала для FFT
+            // 1. Убираем DC-компоненту
             // ------------------------------------------------------------
-
-            Complex[] fftInput = signal
-                .Take(fftSize)
-                .Select(x => new Complex(x, 0))
-                .ToArray();
-
-            Fourier.Forward(
-                fftInput,
-                FourierOptions.Matlab
-            );
-
-            // ------------------------------------------------------------
-            // 5. Формируем амплитудный спектр
-            // ------------------------------------------------------------
-
-            int spectrumLength =
-                fftSize / 2 + 1;
-
-            double[] frequencies =
-                new double[spectrumLength];
-
-            double[] amplitudes =
-                new double[spectrumLength];
-
-            for (int i = 0; i < spectrumLength; i++)
-            {
-                frequencies[i] =
-                    i * sacFile.SamplingRate / fftSize;
-
-                amplitudes[i] =
-                    fftInput[i].Magnitude;
-            }
-
-            // ------------------------------------------------------------
-            // 6. Убираем частоту 0 Hz
-            // ------------------------------------------------------------
-
-            // На логарифмической шкале
-            // log10(0) не существует.
 
             double[] positiveFrequencies =
-                frequencies
+                spectrum.Frequencies
                     .Skip(1)
                     .ToArray();
 
             double[] positiveAmplitudes =
-                amplitudes
+                spectrum.Amplitudes
                     .Skip(1)
                     .ToArray();
 
+            if (positiveFrequencies.Length == 0)
+            {
+                Console.WriteLine(
+                    "Нет положительных частот"
+                );
+                return;
+            }
+
             // ------------------------------------------------------------
-            // 7. Переводим X в log10(f)
+            // 2. Переводим частоту в log10(f)
             // ------------------------------------------------------------
 
             double[] logFrequencies =
@@ -340,7 +461,7 @@ namespace EARFQUAKE
                     .ToArray();
 
             // ------------------------------------------------------------
-            // 8. Создаём график
+            // 3. Создаём график
             // ------------------------------------------------------------
 
             var plt = new Plot();
@@ -354,42 +475,38 @@ namespace EARFQUAKE
             spectrumPlot.LineWidth = 1;
 
             // ------------------------------------------------------------
-            // 9. Настройка оси X
+            // 4. Логарифмическая ось X
             // ------------------------------------------------------------
 
-            // Мы сами используем log10(f),
-            // поэтому координаты:
-            //
-            // log10(0.01) = -2
-            // log10(0.1)  = -1
-            // log10(1)    =  0
-            // log10(10)   =  1
-            //
-            // Но подписи сделаем нормальными.
+            double minFrequency =
+                positiveFrequencies.First();
+
+            double maxFrequency =
+                spectrum.NyquistFrequency;
 
             plt.Axes.SetLimitsX(
-                Math.Log10(0.01),
-                Math.Log10(sacFile.SamplingRate / 2.0)
+                Math.Log10(minFrequency),
+                Math.Log10(maxFrequency)
             );
 
             // ------------------------------------------------------------
-            // 10. Подписи логарифмической оси
+            // 5. Подписи оси X
             // ------------------------------------------------------------
 
             var tickPositions = new double[]
             {
-    -2,
-    -1,
-     0,
-     1
+        -2,
+        -1,
+         0,
+         1
             };
 
             var tickLabels = new string[]
             {
-    "0.01",
-    "0.1",
-    "1",
-    "10"
+        "0.01",
+        "0.1",
+        "1",
+        "10"
             };
 
             plt.Axes.Bottom.TickGenerator =
@@ -399,7 +516,7 @@ namespace EARFQUAKE
                 );
 
             // ------------------------------------------------------------
-            // 11. Названия графика и осей
+            // 6. Подписи
             // ------------------------------------------------------------
 
             plt.Title(
@@ -411,7 +528,7 @@ namespace EARFQUAKE
             plt.YLabel("Amplitude");
 
             // ------------------------------------------------------------
-            // 12. Сохраняем график
+            // 7. Сохранение
             // ------------------------------------------------------------
 
             string fileName =

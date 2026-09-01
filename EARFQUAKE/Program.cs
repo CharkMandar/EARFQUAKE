@@ -6,112 +6,185 @@ class Program
     {
         try
         {
+            // ============================================================
             // 1. Загрузка данных
+            // ============================================================
+
             var loader = new SacLoader();
+
             var sacFiles = loader.LoadFromJson(
                 @"C:\Users\mihas\PycharmProjects\FullSacShit\SAC_PROCESSED\seismic_event.json.z"
             );
 
-            if (sacFiles.Count == 0) return;
-
-            var signalProcessor = new SignalProcessor();
-
-            var spectrumAnalyzer = new SpectrumAnalyzer();
-
-            var exampleSignal = sacFiles.FirstOrDefault();
-
-            if (exampleSignal != null)
+            if (sacFiles.Count == 0)
             {
-                // --------------------------------------------------------
-                // 1. Предобработка
-                // --------------------------------------------------------
-
-                double[] preprocessed =
-                    signalProcessor.Preprocess(exampleSignal);
-
-                // --------------------------------------------------------
-                // 2. Bandpass 0.1–10 Hz
-                // --------------------------------------------------------
-
-                double[] filtered =
-                    signalProcessor.FilterSignal(
-                        preprocessed,
-                        exampleSignal.SamplingRate,
-                        0.1,
-                        10.0,
-                        4
-                    );
-
-                // --------------------------------------------------------
-                // 3. FFT
-                // --------------------------------------------------------
-
-                SpectrumResult spectrum =
-                    spectrumAnalyzer.CalculateFFT(
-                        filtered,
-                        exampleSignal.SamplingRate
-                    );
-
-                // --------------------------------------------------------
-                // 4. Доминирующая частота
-                // --------------------------------------------------------
-
-                double dominantFrequency =
-                    spectrumAnalyzer.FindDominantFrequency(
-                        spectrum
-                    );
-
-                spectrumAnalyzer.PlotSpectrum(
-                    exampleSignal
-                );
-
-                Console.WriteLine();
-                Console.WriteLine("=== SPECTRAL ANALYSIS ===");
-
-                Console.WriteLine(
-                    $"Station:              {exampleSignal.Station}");
-
-                Console.WriteLine(
-                    $"Channel:              {exampleSignal.Channel}");
-
-                Console.WriteLine(
-                    $"FFT samples:          {spectrum.SampleCount}");
-
-                Console.WriteLine(
-                    $"Frequency resolution: {spectrum.FrequencyResolution:F6} Hz");
-
-                Console.WriteLine(
-                    $"Nyquist frequency:    {spectrum.NyquistFrequency:F2} Hz");
-
-                Console.WriteLine(
-                    $"Dominant frequency:   {dominantFrequency:F4} Hz");
+                Console.WriteLine("Данные не загружены.");
+                return;
             }
 
-            //// 2. Базовый анализ
-            //var analyzer = new SacAnalyzer();
-            //analyzer.BasicAnalysis(sacFiles);
+            Console.WriteLine(
+                $"Загружено записей: {sacFiles.Count}"
+            );
 
-            //// 3. Графики
-            //analyzer.PlotDistanceVsAmplitude(sacFiles);
-            //analyzer.PlotStationMap(sacFiles);
-            //analyzer.PlotBinnedGraph(sacFiles);
+            Console.WriteLine();
 
-            //// 4. График для первой станции
-            //if (sacFiles.Count > 0)
-            //{
-            //    analyzer.PlotExampleWaveform(sacFiles[0]);
-            //}
+            // ================================================================
+            // 2. Очистка дубликатов
+            // ================================================================
 
-            //// 5. Простой экспорт в CSV
-            //ExportToCsv(sacFiles, "simple_analysis.csv");
+            var cleaner = new SeismicDataCleaner();
 
-            Console.WriteLine("\nГотово!");
+            var cleanedRecords =
+                cleaner.RemoveDuplicates(sacFiles);
+
+            Console.WriteLine(
+                $"После очистки: {cleanedRecords.Count}"
+            );
+
+            // ================================================================
+            // 3. Спектральный анализ
+            // ================================================================
+
+            var spectralAnalyzer =
+                new SeismicSpectralAnalyzer();
+
+            var results =
+                new List<StationSpectralResult>();
+
+            foreach (var record in cleanedRecords)
+            {
+                var result =
+                    spectralAnalyzer.AnalyzeSacFile(record);
+
+                if (result != null)
+                {
+                    results.Add(result);
+                }
+            }
+
+            // ================================================================
+            // 4. Итоговая информация
+            // ================================================================
+
+            Console.WriteLine();
+            Console.WriteLine(
+                "=== SEISMIC SPECTRAL ANALYSIS ==="
+            );
+
+            Console.WriteLine(
+                $"Исходных записей:       {sacFiles.Count}"
+            );
+
+            Console.WriteLine(
+                $"Уникальных записей:     {cleanedRecords.Count}"
+            );
+
+            Console.WriteLine(
+                $"Успешно проанализировано: {results.Count}"
+            );
+
+            Console.WriteLine(
+                $"Не обработано:           " +
+                $"{cleanedRecords.Count - results.Count}"
+            );
+
+            Console.WriteLine();
+
+            Console.WriteLine(
+                $"Уникальных станций: " +
+                $"{results.Select(r => r.Station).Distinct().Count()}"
+            );
+
+            Console.WriteLine(
+                $"Рассчитываемые характеристики:"
+            );
+
+            Console.WriteLine(
+                "  • Dominant Frequency"
+            );
+
+            Console.WriteLine(
+                "  • Spectral Centroid"
+            );
+
+            Console.WriteLine(
+                "  • Spectral Bandwidth"
+            );
+
+            Console.WriteLine(
+                "  • Spectral Energy"
+            );
+
+            // ================================================================
+            // 5. Первые результаты
+            // ================================================================
+
+            Console.WriteLine();
+            Console.WriteLine(
+                "=== ПРИМЕР РЕЗУЛЬТАТОВ ==="
+            );
+
+            foreach (var result in results.Take(10))
+            {
+                Console.WriteLine();
+
+                Console.WriteLine(
+                    $"{result.Network}." +
+                    $"{result.Station}." +
+                    $"{result.Location}." +
+                    $"{result.Channel}"
+                );
+
+                Console.WriteLine(
+                    $"Distance:   " +
+                    $"{result.DistanceKm:F2} km"
+                );
+
+                Console.WriteLine(
+                    $"Dominant:   " +
+                    $"{result.Features.DominantFrequency:F4} Hz"
+                );
+
+                Console.WriteLine(
+                    $"Centroid:   " +
+                    $"{result.Features.SpectralCentroid:F4} Hz"
+                );
+
+                Console.WriteLine(
+                    $"Bandwidth:  " +
+                    $"{result.Features.SpectralBandwidth:F4} Hz"
+                );
+
+                Console.WriteLine(
+                    $"Energy:     " +
+                    $"{result.Features.SpectralEnergy:E6}"
+                );
+            }
+
+            // ================================================================
+            // 6. Завершение
+            // ================================================================
+
+            Console.WriteLine();
+            Console.WriteLine(
+                "Спектральный анализ завершён."
+            );
+
+            Console.WriteLine(
+                "Следующий этап: сравнение характеристик " +
+                "между станциями и визуализация."
+            );
+
+            Console.ReadKey();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Ошибка: {ex.Message}");
+            Console.WriteLine(
+                $"Критическая ошибка: {ex.Message}"
+            );
         }
     }
+
 
     static void ExportToCsv(List<SacFile> sacFiles, string path)
     {
@@ -126,4 +199,25 @@ class Program
         }
         Console.WriteLine($"Данные экспортированы в: {path}");
     }
+
+
+
+    //// 2. Базовый анализ
+    //var analyzer = new SacAnalyzer();
+    //analyzer.BasicAnalysis(sacFiles);
+
+    //// 3. Графики
+    //analyzer.PlotDistanceVsAmplitude(sacFiles);
+    //analyzer.PlotStationMap(sacFiles);
+    //analyzer.PlotBinnedGraph(sacFiles);
+
+    //// 4. График для первой станции
+    //if (sacFiles.Count > 0)
+    //{
+    //    analyzer.PlotExampleWaveform(sacFiles[0]);
+    //}
+
+    //// 5. Простой экспорт в CSV
+    //ExportToCsv(sacFiles, "simple_analysis.csv");
+
 }
