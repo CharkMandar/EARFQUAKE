@@ -361,3 +361,15 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# --- Python / PyInstaller / данные проекта ---
+.venv/
+.idea/
+build/
+dist/
+*.spec
+
+# Скачанные и результирующие данные
+SAC_PROCESSED/
+*.sac
+*.json.z
