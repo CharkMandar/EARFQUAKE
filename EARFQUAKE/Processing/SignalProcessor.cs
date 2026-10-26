@@ -1,6 +1,7 @@
-﻿using ScottPlot;
+﻿using EARFQUAKE.Models;
+using ScottPlot;
 
-namespace EARFQUAKE
+namespace EARFQUAKE.Processing
 {
     // ========================================================================
     // РЕЗУЛЬТАТ АНАЛИЗА ОДНОГО СИГНАЛА

@@ -1,8 +1,9 @@
-﻿using MathNet.Numerics.Statistics;
+﻿using EARFQUAKE.Models;
+using MathNet.Numerics.Statistics;
 using ScottPlot;
 using System.Security.Cryptography;
 
-namespace EARFQUAKE
+namespace EARFQUAKE.Analysis
 {
     public static class EnumerableExtentions
     {

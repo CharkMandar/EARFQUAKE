@@ -3,7 +3,7 @@ using Newtonsoft.Json.Linq;
 using System.IO.Compression;
 using System.Globalization;
 
-namespace EARFQUAKE
+namespace EARFQUAKE.Models
 {
     public class SacLoader
     {

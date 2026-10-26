@@ -1,9 +1,10 @@
 ﻿using MathNet.Numerics.IntegralTransforms;
 using System.Numerics;
 using ScottPlot;
+using EARFQUAKE.Models;
 
 
-namespace EARFQUAKE
+namespace EARFQUAKE.Analysis
 {
     // ========================================================================
     // РЕЗУЛЬТАТ СПЕКТРАЛЬНОГО АНАЛИЗА

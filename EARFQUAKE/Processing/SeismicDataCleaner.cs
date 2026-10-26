@@ -1,4 +1,6 @@
-﻿namespace EARFQUAKE
+﻿using EARFQUAKE.Models;
+
+namespace EARFQUAKE.Processing
 {
     public class SeismicDataCleaner
     {

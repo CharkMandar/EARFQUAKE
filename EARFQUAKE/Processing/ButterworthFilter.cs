@@ -1,4 +1,4 @@
-﻿namespace EARFQUAKE
+﻿namespace EARFQUAKE.Processing
 {
     public static class ButterworthFilter
     {

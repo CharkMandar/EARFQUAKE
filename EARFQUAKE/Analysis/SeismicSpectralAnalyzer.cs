@@ -1,4 +1,7 @@
-﻿namespace EARFQUAKE
+﻿using EARFQUAKE.Models;
+using EARFQUAKE.Processing;
+
+namespace EARFQUAKE.Analysis
 {
     public class SeismicSpectralAnalyzer
     {

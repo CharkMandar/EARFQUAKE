@@ -1,6 +1,8 @@
+using EARFQUAKE.Analysis;
+using EARFQUAKE.Models;
 using ScottPlot;
 
-namespace EARFQUAKE
+namespace EARFQUAKE.Visualization
 {
     public enum SpectralFeature
     {

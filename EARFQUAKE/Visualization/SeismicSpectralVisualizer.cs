@@ -1,6 +1,7 @@
-﻿using ScottPlot;
+﻿using EARFQUAKE.Models;
+using ScottPlot;
 
-namespace EARFQUAKE
+namespace EARFQUAKE.Visualization
 {
     public class SeismicSpectralVisualizer
     {

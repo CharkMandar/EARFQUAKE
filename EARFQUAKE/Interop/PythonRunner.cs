@@ -1,7 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Text;
 
-namespace EARFQUAKE
+namespace EARFQUAKE.Interop
 {
     /// <summary>
     /// Запускает Python-часть (скрипт или собранный exe), показывает ход работы

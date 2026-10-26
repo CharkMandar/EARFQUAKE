@@ -1,6 +1,10 @@
+using EARFQUAKE.Interop;
+using EARFQUAKE.Models;
+using EARFQUAKE.Processing;
+using EARFQUAKE.Analysis;
 using System.Globalization;
 
-namespace EARFQUAKE
+namespace EARFQUAKE.Services
 {
     public record AnalysisRequest(DateTime TimeUtc, int DurationSeconds, string OutputDir);
 

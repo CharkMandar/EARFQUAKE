@@ -1,8 +1,9 @@
-﻿using System;
+﻿using EARFQUAKE.Analysis;
+using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace EARFQUAKE
+namespace EARFQUAKE.Models
 {
     public class StationSpectralResult
     {
