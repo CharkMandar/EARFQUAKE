@@ -1,7 +1,16 @@
-﻿namespace EARFQUAKE.Processing
+﻿using System.Numerics;
+
+namespace EARFQUAKE.Processing
 {
+    /// <summary>
+    /// Полосовой фильтр Баттерворта: ФВЧ(lowCut) + ФНЧ(highCut), каждый порядка order,
+    /// собранные из биквадратных секций с добротностями Q_k настоящего Баттерворта.
+    /// Применяется вперёд и назад (нулевой фазовый сдвиг), поэтому итоговая АЧХ
+    /// равна квадрату АЧХ одного прохода: на частоте среза усиление 0.5 (-6 дБ).
+    /// </summary>
     public static class ButterworthFilter
     {
+        // Публичный интерфейс не изменился
         public static double[] Bandpass(
             double[] signal,
             double samplingRate,
@@ -13,269 +22,139 @@
                 throw new ArgumentException("Сигнал пустой.");
 
             if (samplingRate <= 0)
-                throw new ArgumentException(
-                    "Частота дискретизации должна быть > 0.");
+                throw new ArgumentException("Частота дискретизации должна быть > 0.");
 
             if (lowCut <= 0)
-                throw new ArgumentException(
-                    "Нижняя частота должна быть > 0.");
+                throw new ArgumentException("Нижняя частота должна быть > 0.");
 
             if (highCut <= lowCut)
-                throw new ArgumentException(
-                    "Верхняя частота должна быть больше нижней.");
+                throw new ArgumentException("Верхняя частота должна быть больше нижней.");
 
             double nyquist = samplingRate / 2.0;
 
             if (highCut >= nyquist)
                 throw new ArgumentException(
-                    $"Верхняя частота должна быть меньше " +
-                    $"частоты Найквиста ({nyquist:F2} Hz).");
+                    $"Верхняя частота должна быть меньше частоты Найквиста ({nyquist:F2} Hz).");
 
-            if (order < 1)
-                throw new ArgumentException(
-                    "Порядок фильтра должен быть >= 1.");
+            if (order < 2 || order % 2 != 0)
+                throw new ArgumentException("Порядок фильтра должен быть чётным и >= 2.");
 
-            // --------------------------------------------------------
-            // Band-pass строим как последовательное применение:
-            //
-            // high-pass(lowCut)
-            //       ↓
-            // low-pass(highCut)
-            //
-            // --------------------------------------------------------
+            var sections = Design(samplingRate, lowCut, highCut, order);
 
             double[] result = (double[])signal.Clone();
 
-            result = HighPass(
-                result,
-                samplingRate,
-                lowCut,
-                order);
+            // Вперёд
+            foreach (var s in sections)
+                result = Apply(s, result);
 
-            result = LowPass(
-                result,
-                samplingRate,
-                highCut,
-                order);
-
-            // --------------------------------------------------------
-            // Повторное применение в обратном направлении.
-            //
-            // Это приближает zero-phase filtering:
-            // фильтр не должен сдвигать сигнал по времени.
-            // --------------------------------------------------------
-
+            // Назад
             Array.Reverse(result);
-
-            result = HighPass(
-                result,
-                samplingRate,
-                lowCut,
-                order);
-
-            result = LowPass(
-                result,
-                samplingRate,
-                highCut,
-                order);
-
+            foreach (var s in sections)
+                result = Apply(s, result);
             Array.Reverse(result);
 
             return result;
         }
 
-
-        // ============================================================
-        // LOW-PASS
-        // ============================================================
-
-        private static double[] LowPass(
-            double[] signal,
+        /// <summary>
+        /// АЧХ всего фильтра (с учётом прохода вперёд и назад) на частоте f.
+        /// Нужна для проверки: на lowCut и highCut должно быть около 0.5, в полосе около 1.
+        /// </summary>
+        public static double MagnitudeResponse(
+            double f,
             double samplingRate,
-            double cutoff,
-            int order)
+            double lowCut,
+            double highCut,
+            int order = 4)
         {
-            double[] result = (double[])signal.Clone();
+            var sections = Design(samplingRate, lowCut, highCut, order);
 
-            for (int i = 0; i < order; i++)
+            Complex z = Complex.FromPolarCoordinates(1.0, 2.0 * Math.PI * f / samplingRate);
+            Complex zi = 1.0 / z;
+
+            Complex h = Complex.One;
+            foreach (var s in sections)
             {
-                result = LowPassSecondOrder(
-                    result,
-                    samplingRate,
-                    cutoff);
+                Complex num = s.B0 + s.B1 * zi + s.B2 * zi * zi;
+                Complex den = 1.0 + s.A1 * zi + s.A2 * zi * zi;
+                h *= num / den;
             }
 
-            return result;
+            double gain = h.Magnitude;
+            return gain * gain; // вперёд и назад
         }
 
+        // ====================================================================
+        // Проектирование
+        // ====================================================================
 
-        // ============================================================
-        // HIGH-PASS
-        // ============================================================
+        private readonly record struct Biquad(
+            double B0, double B1, double B2, double A1, double A2);
 
-        private static double[] HighPass(
-            double[] signal,
-            double samplingRate,
-            double cutoff,
-            int order)
+        private static List<Biquad> Design(
+            double fs, double lowCut, double highCut, int order)
         {
-            double[] result = (double[])signal.Clone();
+            var list = new List<Biquad>();
 
-            for (int i = 0; i < order; i++)
+            // Добротности секций Баттерворта чётного порядка N:
+            // Q_k = 1 / (2 cos((2k-1)π / (2N))), k = 1..N/2
+            // Для N = 4: 0.5412 и 1.3066
+            for (int k = 1; k <= order / 2; k++)
             {
-                result = HighPassSecondOrder(
-                    result,
-                    samplingRate,
-                    cutoff);
+                double q = 1.0 / (2.0 * Math.Cos((2.0 * k - 1.0) * Math.PI / (2.0 * order)));
+
+                list.Add(MakeBiquad(highPass: true, fs, lowCut, q));
+                list.Add(MakeBiquad(highPass: false, fs, highCut, q));
             }
 
-            return result;
+            return list;
         }
 
-
-        // ============================================================
-        // LOW-PASS 2-го порядка
-        // ============================================================
-
-        private static double[] LowPassSecondOrder(
-            double[] signal,
-            double samplingRate,
-            double cutoff)
+        // Биквад по формулам RBJ (билинейное преобразование с учётом искажения частоты)
+        private static Biquad MakeBiquad(bool highPass, double fs, double cutoff, double q)
         {
-            double[] result = new double[signal.Length];
+            double w0 = 2.0 * Math.PI * cutoff / fs;
+            double cos = Math.Cos(w0);
+            double alpha = Math.Sin(w0) / (2.0 * q);
 
-            double omega =
-                2.0 * Math.PI * cutoff / samplingRate;
-
-            double cosOmega = Math.Cos(omega);
-            double sinOmega = Math.Sin(omega);
-
-            double alpha =
-                sinOmega / (2.0 * Math.Sqrt(2.0));
-
-            double b0 =
-                (1.0 - cosOmega) / 2.0;
-
-            double b1 =
-                1.0 - cosOmega;
-
-            double b2 =
-                (1.0 - cosOmega) / 2.0;
-
-            double a0 =
-                1.0 + alpha;
-
-            double a1 =
-                -2.0 * cosOmega;
-
-            double a2 =
-                1.0 - alpha;
-
-            b0 /= a0;
-            b1 /= a0;
-            b2 /= a0;
-            a1 /= a0;
-            a2 /= a0;
-
-            double x1 = 0.0;
-            double x2 = 0.0;
-            double y1 = 0.0;
-            double y2 = 0.0;
-
-            for (int i = 0; i < signal.Length; i++)
+            double b0, b1, b2;
+            if (highPass)
             {
-                double x0 = signal[i];
-
-                double y0 =
-                    b0 * x0 +
-                    b1 * x1 +
-                    b2 * x2 -
-                    a1 * y1 -
-                    a2 * y2;
-
-                result[i] = y0;
-
-                x2 = x1;
-                x1 = x0;
-
-                y2 = y1;
-                y1 = y0;
+                b0 = (1.0 + cos) / 2.0;
+                b1 = -(1.0 + cos);
+                b2 = (1.0 + cos) / 2.0;
+            }
+            else
+            {
+                b0 = (1.0 - cos) / 2.0;
+                b1 = 1.0 - cos;
+                b2 = (1.0 - cos) / 2.0;
             }
 
-            return result;
+            double a0 = 1.0 + alpha;
+            double a1 = -2.0 * cos;
+            double a2 = 1.0 - alpha;
+
+            return new Biquad(b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0);
         }
 
-
-        // ============================================================
-        // HIGH-PASS 2-го порядка
-        // ============================================================
-
-        private static double[] HighPassSecondOrder(
-            double[] signal,
-            double samplingRate,
-            double cutoff)
+        private static double[] Apply(Biquad s, double[] x)
         {
-            double[] result = new double[signal.Length];
+            var y = new double[x.Length];
+            double x1 = 0, x2 = 0, y1 = 0, y2 = 0;
 
-            double omega =
-                2.0 * Math.PI * cutoff / samplingRate;
-
-            double cosOmega = Math.Cos(omega);
-            double sinOmega = Math.Sin(omega);
-
-            double alpha =
-                sinOmega / (2.0 * Math.Sqrt(2.0));
-
-            double b0 =
-                (1.0 + cosOmega) / 2.0;
-
-            double b1 =
-                -(1.0 + cosOmega);
-
-            double b2 =
-                (1.0 + cosOmega) / 2.0;
-
-            double a0 =
-                1.0 + alpha;
-
-            double a1 =
-                -2.0 * cosOmega;
-
-            double a2 =
-                1.0 - alpha;
-
-            b0 /= a0;
-            b1 /= a0;
-            b2 /= a0;
-            a1 /= a0;
-            a2 /= a0;
-
-            double x1 = 0.0;
-            double x2 = 0.0;
-            double y1 = 0.0;
-            double y2 = 0.0;
-
-            for (int i = 0; i < signal.Length; i++)
+            for (int i = 0; i < x.Length; i++)
             {
-                double x0 = signal[i];
+                double x0 = x[i];
+                double y0 = s.B0 * x0 + s.B1 * x1 + s.B2 * x2 - s.A1 * y1 - s.A2 * y2;
 
-                double y0 =
-                    b0 * x0 +
-                    b1 * x1 +
-                    b2 * x2 -
-                    a1 * y1 -
-                    a2 * y2;
+                y[i] = y0;
 
-                result[i] = y0;
-
-                x2 = x1;
-                x1 = x0;
-
-                y2 = y1;
-                y1 = y0;
+                x2 = x1; x1 = x0;
+                y2 = y1; y1 = y0;
             }
 
-            return result;
+            return y;
         }
     }
 }

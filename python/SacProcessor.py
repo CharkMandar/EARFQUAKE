@@ -11,6 +11,8 @@ if getattr(sys, "frozen", False):
 
 from obspy import UTCDateTime, read
 from obspy.clients.fdsn import Client
+from obspy.geodetics import locations2degrees
+from obspy.taup import TauPyModel
 import os
 import json
 import msgpack
@@ -31,6 +33,23 @@ class SACConfig:
     DEFAULT_CLIENT = "RESIF"  # FDSN клиент по умолчанию
     DEFAULT_OUTPUT_DIR = "SAC_PROCESSED"
     DEFAULT_CHANNELS = "BH?"  # Широкополосные сейсмические каналы
+
+    # Каталоги, где ищем параметры события (по порядку, пока один не ответит)
+    EVENT_CLIENTS = ["USGS", "IRIS"]
+
+    # Запас записи ДО события, секунд (нужен для оценки уровня шума)
+    PRE_EVENT_SECONDS = 600
+    # Поиск события вокруг введённого времени, минут в обе стороны
+    EVENT_SEARCH_MINUTES = 10
+    # Минимальная магнитуда при поиске в каталоге
+    EVENT_MIN_MAGNITUDE = 6.0
+
+    # Модель Земли для теоретических времён пробега
+    TAUP_MODEL = "iasp91"
+    # Групповые скорости для границ окна поверхностных волн, км/с (приблизительно)
+    SURFACE_VELOCITY_FAST = 4.5
+    SURFACE_VELOCITY_SLOW = 3.0
+    KM_PER_DEGREE = 111.195
 
     # Значения по умолчанию для отсутствующих координат
     UNDEFINED_VALUE = -12345.0
@@ -62,15 +81,27 @@ class SACDataProcessor:
     def download_event_data(self,
                             event_time: str,
                             duration_seconds: int = 3600,
+                            pre_seconds: int = SACConfig.PRE_EVENT_SECONDS,
+                            search_minutes: int = SACConfig.EVENT_SEARCH_MINUTES,
+                            min_magnitude: float = SACConfig.EVENT_MIN_MAGNITUDE,
                             network: str = "*",
                             station: str = "*",
                             location: str = "*",
                             channel: str = None) -> Dict[str, Any]:
 
-        print(f"[1/3] Запрос данных события {event_time}...")
+        print(f"[1/3] Поиск события в каталоге около {event_time}...")
 
-        t0 = UTCDateTime(event_time)
-        t1 = t0 + duration_seconds
+        event = self.find_event(UTCDateTime(event_time), search_minutes, min_magnitude)
+        origin = UTCDateTime(event["origin_time"])
+
+        print(f"    Событие: M{event['magnitude']}, {event['origin_time']}, "
+              f"глубина {event['depth_km']} км")
+
+        # Окно записи: pre_seconds до события (шум) и duration_seconds после него
+        t0 = origin - pre_seconds
+        t1 = origin + duration_seconds
+
+        print(f"    Запрос волновых форм: {t0} ... {t1}")
 
         st = self.client.get_waveforms(
             network=network,
@@ -100,13 +131,127 @@ class SACDataProcessor:
         except Exception as e:
             print(f"    Не удалось получить координаты станций: {e}")
 
-        return self._process_stream_to_sac(st, event_time, inventory)
+        return self._process_stream_to_sac(st, event, inventory)
+
+    # ============================================================================
+    # ПОИСК СОБЫТИЯ В КАТАЛОГЕ
+    # ============================================================================
+
+    def find_event(self, approx_time: UTCDateTime,
+                   search_minutes: int = SACConfig.EVENT_SEARCH_MINUTES,
+                   min_magnitude: float = SACConfig.EVENT_MIN_MAGNITUDE) -> Dict[str, Any]:
+        """
+        Ищет событие в каталоге вокруг заданного времени и возвращает
+        параметры самого сильного из найденных (время в очаге, координаты,
+        глубину, магнитуду).
+        """
+        start = approx_time - search_minutes * 60
+        end = approx_time + search_minutes * 60
+
+        last_error = None
+        for name in SACConfig.EVENT_CLIENTS:
+            try:
+                catalog = Client(name).get_events(
+                    starttime=start,
+                    endtime=end,
+                    minmagnitude=min_magnitude,
+                    orderby="magnitude"
+                )
+            except Exception as e:
+                last_error = e
+                print(f"    Каталог {name} недоступен: {e}")
+                continue
+
+            if len(catalog) == 0:
+                last_error = None
+                continue
+
+            ev = catalog[0]
+            origin = ev.preferred_origin() or ev.origins[0]
+            magnitude = ev.preferred_magnitude() or (ev.magnitudes[0] if ev.magnitudes else None)
+
+            return {
+                "id": str(ev.resource_id),
+                "origin_time": str(origin.time),
+                "latitude": origin.latitude,
+                "longitude": origin.longitude,
+                "depth_km": (origin.depth or 0.0) / 1000.0,
+                "magnitude": magnitude.mag if magnitude is not None else None,
+                "catalog": name
+            }
+
+        if last_error is not None:
+            raise RuntimeError(f"Не удалось обратиться к каталогам событий: {last_error}")
+
+        raise ValueError(
+            f"В каталогах не найдено событий с магнитудой от {min_magnitude} "
+            f"в пределах ±{search_minutes} мин от {approx_time}. "
+            f"Проверьте время или увеличьте окно поиска.")
+
+    # ============================================================================
+    # ТЕОРЕТИЧЕСКИЕ ВРЕМЕНА ВСТУПЛЕНИЙ
+    # ============================================================================
+
+    def _compute_arrivals(self, event: Dict[str, Any], origin: UTCDateTime,
+                          record: Dict[str, Any], record_start: UTCDateTime):
+        """
+        Считает времена вступлений P, S и границы окна поверхностных волн.
+
+        Все значения в секундах ОТ НАЧАЛА ЗАПИСИ (удобно искать отсчёт
+        в массиве). None, если фаза для этого расстояния не существует.
+        """
+        lat = record.get("station_latitude")
+        lon = record.get("station_longitude")
+
+        if (lat is None or lon is None
+                or lat == SACConfig.UNDEFINED_VALUE or lon == SACConfig.UNDEFINED_VALUE):
+            return None
+
+        try:
+            distance_deg = locations2degrees(
+                event["latitude"], event["longitude"], lat, lon)
+
+            if getattr(self, "_taup", None) is None:
+                self._taup = TauPyModel(model=SACConfig.TAUP_MODEL)
+
+            def first_arrival(phase_group):
+                arrivals = self._taup.get_travel_times(
+                    source_depth_in_km=event["depth_km"],
+                    distance_in_degree=distance_deg,
+                    phase_list=[phase_group])
+                if not arrivals:
+                    return None, None
+                first = min(arrivals, key=lambda a: a.time)
+                return float(first.time), first.name
+
+            t_p, name_p = first_arrival("ttp")
+            t_s, name_s = first_arrival("tts")
+
+            origin_offset = float(origin - record_start)  # секунд от начала записи до события
+            distance_km = distance_deg * SACConfig.KM_PER_DEGREE
+
+            def offset(t):
+                return None if t is None else origin_offset + t
+
+            return {
+                "distance_deg": float(distance_deg),
+                "p_offset_s": offset(t_p),
+                "p_phase": name_p,
+                "s_offset_s": offset(t_s),
+                "s_phase": name_s,
+                "surf_start_offset_s": offset(distance_km / SACConfig.SURFACE_VELOCITY_FAST),
+                "surf_end_offset_s": offset(distance_km / SACConfig.SURFACE_VELOCITY_SLOW),
+                "origin_offset_s": origin_offset
+            }
+        except Exception as e:
+            print(f"    Не удалось посчитать времена вступлений: {e}")
+            return None
 
     # ============================================================================
     # ЭТАП 2: КОНВЕРТАЦИЯ В SAC ФОРМАТ
     # ============================================================================
 
-    def _process_stream_to_sac(self, stream, event_time: str,
+    def _process_stream_to_sac(self, stream, event: Dict[str, Any],
                                inventory=None) -> Dict[str, Any]:
         """
         Обрабатывает Stream, сохраняет SAC-файлы
@@ -114,7 +259,7 @@ class SACDataProcessor:
 
         Args:
             stream: Obspy Stream объект
-            event_time: время события
+            event: параметры события из каталога (find_event)
 
         Returns:
             Словарь с информацией о событии и его записях
@@ -125,17 +270,10 @@ class SACDataProcessor:
         records = []
 
         # ============================================================
-        # ПАРАМЕТРЫ СОБЫТИЯ
+        # ПАРАМЕТРЫ СОБЫТИЯ (приходят из каталога, см. find_event)
         # ============================================================
 
-        event = {
-            "id": f"event_{event_time}",
-            "origin_time": "2012-08-14T02:59:38",
-            "latitude": 49.8,
-            "longitude": 145.064,
-            "depth_km": 583.0,
-            "magnitude": 7.7
-        }
+        origin = UTCDateTime(event["origin_time"])
 
         # ============================================================
         # ОБРАБОТКА ТРАСС
@@ -182,7 +320,8 @@ class SACDataProcessor:
                 tr.stats.sac.evdp = event["depth_km"]
                 tr.stats.sac.mag = event["magnitude"]
 
-                tr.stats.sac.o = 0.0
+                # Время события относительно начала записи (SAC: o)
+                tr.stats.sac.o = float(origin - tr.stats.starttime)
                 tr.stats.sac.b = 0.0
                 tr.stats.sac.e = tr.stats.delta * tr.stats.npts
 
@@ -204,6 +343,8 @@ class SACDataProcessor:
                 # ----------------------------------------------------
 
                 record = self._extract_record(tr)
+                record["arrivals"] = self._compute_arrivals(
+                    event, origin, record, tr.stats.starttime)
                 records.append(record)
 
                 print(f"    Сохранено: {filename}")
@@ -480,6 +621,8 @@ class SACDataProcessor:
                 "station_latitude": record["station_latitude"],
                 "station_longitude": record["station_longitude"],
 
+                "arrivals": record.get("arrivals"),
+
                 "signal": {
                     "start_time": record["signal"]["start_time"],
                     "sampling_rate": record["signal"]["sampling_rate"]
@@ -618,13 +761,17 @@ class SACDataProcessor:
 
 def download_and_process_event(event_time: str,
                                duration: int = 3600,
-                               output_dir: str = None) -> str:
+                               output_dir: str = None,
+                               pre_seconds: int = SACConfig.PRE_EVENT_SECONDS,
+                               search_minutes: int = SACConfig.EVENT_SEARCH_MINUTES,
+                               min_magnitude: float = SACConfig.EVENT_MIN_MAGNITUDE) -> str:
     """
     Скачивает и обрабатывает данные сейсмического события.
 
     Args:
-        event_time: время события "YYYY-MM-DDTHH:MM:SS"
-        duration: длительность записи в секундах
+        event_time: примерное время события "YYYY-MM-DDTHH:MM:SS" (UTC);
+                    точное время в очаге берётся из каталога
+        duration: сколько секунд записи брать ПОСЛЕ события
         output_dir: папка для сохранения результатов
 
     Returns:
@@ -636,7 +783,10 @@ def download_and_process_event(event_time: str,
     # Скачиваем и формируем структуру события
     event_data = processor.download_event_data(
         event_time=event_time,
-        duration_seconds=duration
+        duration_seconds=duration,
+        pre_seconds=pre_seconds,
+        search_minutes=search_minutes,
+        min_magnitude=min_magnitude
     )
 
     # Сохраняем событие
@@ -687,8 +837,16 @@ def main():
 
     # Режим 2: скачать событие с FDSN-сервера по времени
     p_dl = sub.add_parser("download", help="скачать событие по времени")
-    p_dl.add_argument("--time", required=True, help="YYYY-MM-DDTHH:MM:SS")
-    p_dl.add_argument("--duration", type=int, default=3600, help="секунд")
+    p_dl.add_argument("--time", required=True,
+                      help="примерное время события YYYY-MM-DDTHH:MM:SS (UTC)")
+    p_dl.add_argument("--duration", type=int, default=3600,
+                      help="секунд записи после события")
+    p_dl.add_argument("--pre", type=int, default=SACConfig.PRE_EVENT_SECONDS,
+                      help="секунд записи до события (для оценки шума)")
+    p_dl.add_argument("--search-minutes", type=int, default=SACConfig.EVENT_SEARCH_MINUTES,
+                      help="поиск события в каталоге: ± минут от --time")
+    p_dl.add_argument("--min-mag", type=float, default=SACConfig.EVENT_MIN_MAGNITUDE,
+                      help="минимальная магнитуда при поиске")
     p_dl.add_argument("--out", required=True, help="папка для результата")
 
     args = parser.parse_args()
@@ -702,7 +860,11 @@ def main():
         if args.mode == "sac-dir":
             result = process_existing_sac_files(args.dir, args.out)
         else:
-            result = download_and_process_event(args.time, args.duration, args.out)
+            result = download_and_process_event(
+                args.time, args.duration, args.out,
+                pre_seconds=args.pre,
+                search_minutes=args.search_minutes,
+                min_magnitude=args.min_mag)
     except Exception as e:
         print(f"Ошибка: {e}", file=sys.stderr)
         sys.exit(1)
